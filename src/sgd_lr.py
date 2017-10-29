@@ -1,19 +1,39 @@
 #!/usr/bin/python
 
+#TODO choose appropriate attributes
+#TODO decide if there are any necessary transformations
+#TODO create pipeline
+#TODO add crossvalidation, 80/20 10 folds
+#TODO compare MSE and RMSE
+#TODO run with L1
+#TODO run with L2
+
 #import findspark
 #findspark.init()
 
+# import spark stuff
 from pyspark import SparkContext
 from pyspark import SparkConf
-import itertools
+from pyspark.mllib.regression import LabeledPoint, LinearRegressionWithSGD,
+LinearRegressionModel
+
+# import python stuff
 from collections import defaultdict, Counter
 import os
 import csv
 import sys
 
-# dictionary of dictionaries with default value pf 0
-stripes_dict = defaultdict(lambda: defaultdict(int))
-pair_dict = defaultdict(int)
+# parse the data, convert str to floats and ints as appropriate
+def parse_row(line_list):
+    # id, vendor_id, pickup_datetime, dropoff_datetime,
+    # passenger_count, pickup_longitude, pickup_latitude, 
+    # dropoff_longitude, dropoff_latitude, store_and_fwd_flag,
+    # trip_duration
+    values = [line_list[0], line_list[1],  line_list[2],  line_list[3],
+              int(line_list[4]),  float(line_list[5]),  float(line_list[6]),
+              float(line_list[7]), float(line_list[8]),  line_list[9],
+              int(line_list[10])]
+    return (values[0], values[1:])
 
 def get_abs_file_path(file_dir, fn):
     cur_dir = os.path.abspath(os.curdir)
@@ -95,7 +115,7 @@ def main():
 
     # need to convert list of strings to key value pairs
     #[[u1, mi], ..]
-    user_pairs = data.map(lambda x: [int(i) for i in x.split(",")])
+    user_pairs = data.map(lambda x: [float(i) for i in x.split(",")])
 
     # sorted makes sure that i,j == j,i
     # group pairs [(ui, [sortedmovies_ij]]
