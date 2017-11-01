@@ -14,14 +14,15 @@
 # import spark stuff
 from pyspark import SparkContext
 from pyspark import SparkConf
-from pyspark.mllib.regression import LabeledPoint, LinearRegressionWithSGD,
-LinearRegressionModel
+from pyspark.mllib.regression import LabeledPoint, LinearRegressionWithSGD, LinearRegressionModel
+from pyspark.mllib.feature import StandardScalar, StandardScalerModel
 
 # import python stuff
 from collections import defaultdict, Counter
 import os
 import csv
 import sys
+import pickle
 
 # parse the data, convert str to floats and ints as appropriate
 def parse_row(line_list):
@@ -29,24 +30,15 @@ def parse_row(line_list):
     # passenger_count, pickup_longitude, pickup_latitude, 
     # dropoff_longitude, dropoff_latitude, store_and_fwd_flag,
     # trip_duration
-    values = [line_list[0], line_list[1],  line_list[2],  line_list[3],
+    long_dist = abs(float(line_list[5]) - float(line_list[7])) # double check
+    lat_dist = abs(float(line_list[6]) - float(line_list[8]))
+    y = int(line_list[-1])
+    #not currently using but may need some of the value
+    x_values = [line_list[0], line_list[1],  line_list[2],  line_list[3],
               int(line_list[4]),  float(line_list[5]),  float(line_list[6]),
-              float(line_list[7]), float(line_list[8]),  line_list[9],
-              int(line_list[10])]
-    return (values[0], values[1:])
+              float(line_list[7]), float(line_list[8]),  line_list[9]]
 
-def get_abs_file_path(file_dir, fn):
-    cur_dir = os.path.abspath(os.curdir)
-    return os.path.normpath(os.path.join(cur_dir, "..", "..", file_dir, fn))
-
-def save_default_dict_to_disk(count_generator, fn):
-    with open(fn, 'wb') as output:
-        w = csv.writer(output)
-        w.writerow(["m1_m2","counts"])
-        for k,v in count_generator:
-            key_pair = k[0]
-            count = k[1]
-            w.writerow([key_pair, count])
+    return LabeledPoint(y, (lat_dist, long_dist))
 
 def save_rdd_to_disk(output_dir, output_fn, rdd):
     output_path = get_abs_file_path(output_dir, output_fn)
@@ -54,45 +46,19 @@ def save_rdd_to_disk(output_dir, output_fn, rdd):
     #save_default_dict(stripe_count_dict, output_path)
     #print("saving cooccurrence counts")
 
-# stripe is a list of tups, [(m_2, n_2), (m_j, count_j), ...]
-def increment_stripes(stripe_x, stripe_y):
-    print(stripe_x)
-    print(stripe_y)
-    x = Counter(stripe_x)
-    y = Counter(stripe_y)
-    print(x+y)
-    return dict(x+y)
-
-# aggregated all the movies reviewed by user u
-# movies should be sorted so key pair {(m1, m4) count_1,4} is never (b,a)
-# reviewed_movies is list => [m1, m2, ...]
-# movies_dict is map of maps =>  {m1:{m2:count2, m4:count4}, ..., m_i:{m_i,j : count_i,j}}
-def create_movie_dict(sorted_movies):
-    movies_dict = defaultdict(lambda: defaultdict(int))
-    for i in range(0, len(sorted_movies)):
-        id_i = sorted_movies[i]
-        j_start = i + 1
-        for j in range(j_start, len(sorted_movies)):
-            id_j = sorted_movies[j]
-            movies_dict[id_i][id_j] += 1
-    return movies_dict
-
-def create_stripe(stripe_dict):
-    stripe_list = []
-    for movie_i in stripe_dict.keys():
-        stripe_list.append((movie_i, stripe_dict[movie_i]))
-    return stripe_list
-
-def convert_stripes_to_tups(movie_i, stripe):
-    return [((movie_i, movie_j), count) for movie_j, count in stripe.items()]
+def cross_validate(rdd, train_percent=0.8, kfolds=10 ):
+    for i in range(kfolds):
+         hold_out = rdd.sample(False,1/kfolds)
+         yield hold_out
 
 def main():
     # input parameters
     if len(sys.argv) < 3:
         print("you didnt give directory inputs, using test file")
         input_dir = "test_input"
-        input_fn = "ratings_tiny_processed.csv"
-        input_file_path = get_abs_file_path(input_dir, input_fn)
+        input_fn = "tiny.csv"
+        input_file_path = os.path.join(input_dir, input_fn)
+        #input_file_path = get_abs_file_path(input_dir, input_fn)
         output_fn="test"
     else:
         input_fn = sys.argv[1]
@@ -101,9 +67,7 @@ def main():
         input_file_path = get_abs_file_path(input_dir, input_fn)
 
     # initialize spark
-    conf = SparkConf().setMaster("local").setAppName("spark_cooccurrences.py")
-    conf.set("spark.executor.memory", "3g")
-    conf.set("spark.executor.cores", 2)
+    conf = SparkConf().setMaster("local").setAppName("linear_regression.py")
     sc = SparkContext(conf = conf)
 
     # read in file
@@ -113,55 +77,48 @@ def main():
     header = data.first()
     data = data.filter(lambda x: x != header)
 
-    # need to convert list of strings to key value pairs
-    #[[u1, mi], ..]
-    user_pairs = data.map(lambda x: [float(i) for i in x.split(",")])
+    # convert attributes to floats/ints and make key/values
+    parsed_pair_rdd = data.map(parse_row)
 
-    # sorted makes sure that i,j == j,i
-    # group pairs [(ui, [sortedmovies_ij]]
-    grouped_users = user_pairs.groupByKey().map(lambda x: (x[0], sorted(x[1])))
+    # attributes
+    cv_step = [x / float(100) for x in range(1, 20, 5)]
+    cv_batch_fraction = [x /float(10) for x in range(1, 10, 5)]
+    regType= ["L1", "L2"]
 
-    # grouped pairs by users and dictionary [(u1, dict1), ..., (ui,dictj)]
-    # Using dictionary (stripes) reduces communication costs
-    # [(ui, {m_j:{m_k: count_ijk}), ...] count is 1 for all movies
-    filtered_movies = grouped_users.map(lambda x: len(x[1]) < 2)
-    user_movie_dicts = grouped_users.map(lambda x: (x[0], create_movie_dict(x[1]) ))
+    mse_list = []
+    step_list = []
+    batch_fraction_list = []
+    reg_type_type_list = []
+    MSE_list = []
 
-    # make key pairs of movie_i, stripe_i
-    # [(movie_i, stripe_i), ...]
-    movie_stripes = user_movie_dicts.flatMap(lambda x: create_stripe(x[1]))
-    print("this is movie_stripes: {}\n-----------\n".format(movie_stripes.collect()))
+    for step in cv_step:
+        for i in range(kfolds):
+            train_hold_out = cross_validate(parsed_pair_rdd)
+            train = parsed_pair_rdd(lambda x: x not in train_hold_out)
 
-    # aggregate stripes and sum counts
-    # [(m1, {m2:count2, m4:count4}), ...] 
-    combined_stripes = movie_stripes.reduceByKey(lambda x,y:
-                                              increment_stripes(x,y))
-    print("this is combined_stripes: {}\n-----------\n".format(combined_stripes.collect()))
+            # Build model
+            lm = LinearRegressionWithSGD.train(parsed_pair_rdd, iterations=10,
+                                               step=step, miniBatchFraction=0.1,
+                                               regParam=0.0, regType=None,
+                                               intercept=True, validateData=True )
 
-    # convert to pair values and print
-    # (mi, mj), count
-    counts = combined_stripes.flatMap(lambda x: convert_stripes_to_tups(x[0],
-                                                                        x[1]))
-
-    print("this is combined_stripes: {}\n-----------\n".format(counts.collect()))
+            # Evalute the model on training data
+            values_and_preds = parsed_pair_rdd.map(lambda x: (x.label,
+                                                              lm.predict(x.features)))
+            MSE = values_and_preds \
+                .map(lambda x: (x[0] - x[1])**2) \
+                .reduce(lambda x, y: x + y) / values_and_preds.count()
+            results.append(MSE)
+    for i in zip(results,steps)
+        print("mean squar error = " + str(results))
+        fo
 
     # Output results
-    output_dir = "output/spark"
-    save_rdd_to_disk(output_dir, output_fn, counts)
+    #output_dir = "output/spark"
+    #save_rdd_to_disk(output_dir, output_fn, counts)
+    #with open(output_fn, "w") as text_file:
+    #    text_file.write(MSE)
 
 
 if __name__ == "__main__":
     main()
-
-def somestuff():
-    for k,v in combined_stripes.iteritems():
-        print(k)
-        print(v)
-    #lambda x: [ (m_i, list(x[mi])) for rin x.keys()]
-    #movie_stripes = user_movie_dicts.groupByKey(lambda x: [(k,(v )) for k,v in)
-
-    # Count pairs
-    stripe_count_rdd = sc.parallelize(((k,v) for k,v in
-                                       movie_pairs.countByValue().iteritems()))
-    #stripe_count_rdd = sc.parallelize(stripe_count_gen)
-
