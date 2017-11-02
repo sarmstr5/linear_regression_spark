@@ -12,6 +12,11 @@
 #findspark.init()
 
 # import spark stuff
+from pyspark.ml import Pipeline
+from pyspark.ml.classification import RandomForestClassifier
+from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+
 from pyspark import SparkContext
 from pyspark import SparkConf
 from pyspark.mllib.regression import LabeledPoint, LinearRegressionWithSGD, LinearRegressionModel
@@ -47,6 +52,26 @@ def save_rdd_to_disk(output_dir, output_fn, rdd):
     #print("saving cooccurrence counts")
 
 def cross_validate(rdd, train_percent=0.8, kfolds=10 ):
+
+    trainingData = ...  # DataFrame[label: double, features: vector]
+    numFolds = ...  # Integer
+
+    rf = RandomForestClassifier(labelCol="label", featuresCol="features")
+    evaluator = MulticlassClassificationEvaluator()  # + other params as in Scala
+
+    pipeline = Pipeline(stages=[rf])
+
+    crossval = CrossValidator(
+        estimator=pipeline,
+        estimatorParamMaps=paramGrid,
+        evaluator=evaluator,
+        numFolds=numFolds)
+
+    val predictions = model.transform(test)
+    predictions.show
+    val rmse = evaluator.evaluate(predictions)
+    model = crossval.fit(trainingData)
+
     for i in range(kfolds):
          hold_out = rdd.sample(False,1/kfolds)
          yield hold_out
