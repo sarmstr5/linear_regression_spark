@@ -12,13 +12,17 @@
 #findspark.init()
 
 # import spark stuff
-from pyspark.ml import Pipeline
-from pyspark.ml.classification import RandomForestClassifier
-from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
-from pyspark.ml.evaluation import MulticlassClassificationEvaluator
-
 from pyspark import SparkContext
 from pyspark import SparkConf
+from pyspark.sql import Row
+
+# import ml stuff
+from pyspark.ml.regression import LinearRegression
+from pyspark.ml import Pipeline
+from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
+from pyspark.ml.evaluation import RegressionMetrics
+
+#import mllib
 from pyspark.mllib.regression import LabeledPoint, LinearRegressionWithSGD, LinearRegressionModel
 from pyspark.mllib.feature import StandardScalar, StandardScalerModel
 
@@ -28,6 +32,16 @@ import os
 import csv
 import sys
 import pickle
+
+# parse the data, convert str to floats and ints as appropriate
+def create_df_from_rdd(line_list):
+    # using longitude coordinates
+    lo_dist = abs(float(line_list[5]) - float(line_list[7])) # double check
+    # using latitude coordinates
+    la_dist = abs(float(line_list[6]) - float(line_list[8]))
+    # time of flight
+    y = int(line_list[-1])
+    return Row(flight_time=y, lat_dist=la_dist, long_dist=lo_dist)
 
 # parse the data, convert str to floats and ints as appropriate
 def parse_row(line_list):
@@ -51,16 +65,23 @@ def save_rdd_to_disk(output_dir, output_fn, rdd):
     #save_default_dict(stripe_count_dict, output_path)
     #print("saving cooccurrence counts")
 
-def cross_validate(rdd, train_percent=0.8, kfolds=10 ):
+def get_reg_evals(predictions):
+    metrics = RegressionMetrics(predictions)
+    # mse, rmse, var
+    return metrics.meanSquaredError, metrics.rootMeanSquaredError, metrics.explainedVariance
 
-    trainingData = ...  # DataFrame[label: double, features: vector]
-    numFolds = ...  # Integer
+def build_model(rdd):
+    training_df = rdd.map(create_df_from_rdd)
+    
+    cv_step = [x / float(100) for x in range(1, 20, 5)]
+    cv_batch_fraction = [x /float(10) for x in range(1, 10, 5)]
+    regType= ["L1", "L2"]
 
-    rf = RandomForestClassifier(labelCol="label", featuresCol="features")
-    evaluator = MulticlassClassificationEvaluator()  # + other params as in Scala
-
-    pipeline = Pipeline(stages=[rf])
-
+    # lr model
+    lr = LinearRegression(maxIter=10, regParam=0.3, solver='gd')
+    pipeline = Pipeline(stages=[lr])
+    paramGrid = ParamGridBuilder() \
+                .addGrid(
     crossval = CrossValidator(
         estimator=pipeline,
         estimatorParamMaps=paramGrid,
@@ -72,6 +93,13 @@ def cross_validate(rdd, train_percent=0.8, kfolds=10 ):
     val rmse = evaluator.evaluate(predictions)
     model = crossval.fit(trainingData)
 
+
+            MSE = values_and_preds \
+                .map(lambda x: (x[0] - x[1])**2) \
+                .reduce(lambda x, y: x + y) / values_and_preds.count()
+            results.append(MSE)
+
+def cross_validate(rdd, train_percent=0.8, kfolds=10 ):
     for i in range(kfolds):
          hold_out = rdd.sample(False,1/kfolds)
          yield hold_out
