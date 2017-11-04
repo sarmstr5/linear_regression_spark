@@ -29,7 +29,7 @@ from pyspark.mllib.regression import LabeledPoint, LinearRegressionWithSGD, Line
 #from pyspark.mllib.feature import StandardScalar, StandardScalerModel
 
 # import python stuff
-from collections import defaultdict, Counter
+import numpy as np
 import os
 import csv
 import sys
@@ -115,10 +115,10 @@ def cross_validate(rdd, k_folds, test_k):
                     
     return train, test
 
-def results_to_disk(
-    for i in zip(MSE_results, steps, batch_fractions):
-        print("mean squar error = " + str(i))
-    
+def results_to_disk(*argv):
+    for i in zip(*argv):
+        print(",".join((str(j) for j in i)))
+
 def main():
     # input parameters
     if len(sys.argv) < 3:
@@ -154,15 +154,18 @@ def main():
 
     # attributes
     cv_step = [x / float(100) for x in range(1, 2, 5)]
-    cv_batch_fraction = [x / float(100) for x in range(1, 2, 5)]
+    cv_batch_fraction = [x / float(100) for x in range(1, 100, 25)]
     regType= ["L1", "L2"]
     k_folds = 10
 
     mse_list = []
     steps = []
     batch_fractions = []
-    reg_type_type_list = []
+    reg_types = []
     MSE_results = []
+    RMSE_results = []
+    MSE_avgs = []
+    RMSE_avgs = []
 
     parsed_rdd = data.map(parse_row_for_cv).persist()
     train_set, test_set = parsed_rdd.randomSplit([0.8, 0.2], seed=1234)
@@ -171,38 +174,42 @@ def main():
 
     for step in cv_step:
         for batch_pct in cv_batch_fraction:
-            for k in range(k_folds):
-                print(train_set.take(1))
-                print("on step and k_folds:" +str(step) + "\t" +str(k))
-                train_rdd, validate_rdd = cross_validate(train_set, k_folds, k)
+            for reg in regType:
+                for k in range(k_folds):
+                    print(train_set.take(1))
+                    print("on step and k_folds:{}\t{}\t{}\t{}"
+                          .format(step, batch_pct, reg, k))
+                    train_rdd, validate_rdd = cross_validate(train_set, k_folds, k)
 
-                # Build model
-                lm = LinearRegressionWithSGD.train(train_rdd, iterations=10,
-                                                   step=step,
-                                                   miniBatchFraction=batch_pct,
-                                                   regParam=0.0, regType=None,
-                                                   intercept=True, validateData=True )
+                    # Build model
+                    lm = LinearRegressionWithSGD.train(train_rdd, iterations=10,
+                                                       step=step,
+                                                       miniBatchFraction=batch_pct,
+                                                       regParam=0.0, regType=None,
+                                                       intercept=True, validateData=True )
 
-                # Evalute the model on training data
-                values_and_preds = train_rdd.map(lambda x: (x.label, lm.predict(x.features)))
-                # squares the error then adds all errors together divided by n
-                MSE = values_and_preds \
-                    .map(lambda x: (x[0] - x[1])**2) \
-                    .reduce(lambda x, y: x + y) / n_train
+                    # Evalute the model on training data
+                    values_and_preds = train_rdd.map(lambda x: (x.label, lm.predict(x.features)))
+                    # squares the error then adds all errors together divided by n
+                    MSE = values_and_preds \
+                        .map(lambda x: (x[0] - x[1])**2) \
+                        .reduce(lambda x, y: x + y) / n_train
 
-                MSE_results.append(MSE)
+                    MSE_results.append(MSE)
+                    RMSE_results.append(MSE**(0.5))
+                    #-CROSS Validation___#
+
+                MSE_avgs.append(np.mean(MSE_results))
+                RMSE_avgs.append(np.mean(RMSE_results))
                 steps.append(step)
                 batch_fractions.append(batch_pct)
+                reg_types.append(reg)
+                
+                MSE_results = []
+                RMSE_results = []
+                print("hello")
 
-    for i in zip(MSE_results, steps, batch_fractions):
-        print("mean squar error = " + str(i))
-
-    # Output results
-    #output_dir = "output/spark"
-    #save_rdd_to_disk(output_dir, output_fn, counts)
-    #with open(output_fn, "w") as text_file:
-    #    text_file.write(MSE)
-
+    results_to_disk(MSE_avgs, RMSE_avgs, steps, batch_fractions, reg_types)
 
 if __name__ == "__main__":
     main()
