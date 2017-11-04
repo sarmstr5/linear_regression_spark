@@ -26,7 +26,7 @@ from pyspark.ml import param
 #import mllib
 from pyspark.mllib.evaluation import RegressionMetrics
 from pyspark.mllib.regression import LabeledPoint, LinearRegressionWithSGD, LinearRegressionModel
-from pyspark.mllib.feature import StandardScalar, StandardScalerModel
+#from pyspark.mllib.feature import StandardScalar, StandardScalerModel
 
 # import python stuff
 from collections import defaultdict, Counter
@@ -115,12 +115,16 @@ def cross_validate(rdd, k_folds, test_k):
                     
     return train, test
 
+def results_to_disk(
+    for i in zip(MSE_results, steps, batch_fractions):
+        print("mean squar error = " + str(i))
+    
 def main():
     # input parameters
     if len(sys.argv) < 3:
         print("you didnt give directory inputs, using test file")
         input_dir = "test_input"
-        input_fn = "processed_tiny.csv"
+        input_fn = "thousand_processed.csv"
         input_file_path = os.path.join(input_dir, input_fn)
         #input_file_path = get_abs_file_path(input_dir, input_fn)
         output_fn="test"
@@ -129,7 +133,7 @@ def main():
         input_fn = sys.argv[1]
         output_fn = sys.argv[2]
         input_dir = "data"
-        input_file_path = get_abs_file_path(input_dir, input_fn)
+        input_file_path = os.path.join(input_dir, input_fn)
 
     # initialize spark
     conf = SparkConf().setMaster("local").setAppName("linear_regression.py")
@@ -149,43 +153,48 @@ def main():
     # convert attributes to floats/ints and make key/values
 
     # attributes
-    cv_step = [x / float(100) for x in range(1, 20, 5)]
-    cv_batch_fraction = [x / float(100) for x in range(1, 11, 5)]
+    cv_step = [x / float(100) for x in range(1, 2, 5)]
+    cv_batch_fraction = [x / float(100) for x in range(1, 2, 5)]
     regType= ["L1", "L2"]
     k_folds = 10
 
     mse_list = []
-    step_list = []
-    batch_fraction_list = []
+    steps = []
+    batch_fractions = []
     reg_type_type_list = []
-    MSE_list = []
+    MSE_results = []
 
     parsed_rdd = data.map(parse_row_for_cv).persist()
-    train_set_rdd, test_set_rdd = parsed_rdd.randomSplit([0.8, 0.2], seed=1234)
-    train_set_rdd.persist()
-    n_train = train_set_rdd.count()
+    train_set, test_set = parsed_rdd.randomSplit([0.8, 0.2], seed=1234)
+    train_set.persist()
+    n_train = train_set.count()
 
     for step in cv_step:
-        for i in range(kfolds):
-            train_rdd, validate_rdd = train_set_rdd.map(cross_validate)
+        for batch_pct in cv_batch_fraction:
+            for k in range(k_folds):
+                print(train_set.take(1))
+                print("on step and k_folds:" +str(step) + "\t" +str(k))
+                train_rdd, validate_rdd = cross_validate(train_set, k_folds, k)
 
-            # Build model
-            lm = LinearRegressionWithSGD.train_rdd(train_rdd, iterations=10,
-                                               step=step, miniBatchFraction=0.1,
-                                               regParam=0.0, regType=None,
-                                               intercept=True, validateData=True )
+                # Build model
+                lm = LinearRegressionWithSGD.train(train_rdd, iterations=10,
+                                                   step=step,
+                                                   miniBatchFraction=batch_pct,
+                                                   regParam=0.0, regType=None,
+                                                   intercept=True, validateData=True )
 
-            # Evalute the model on training data
-            values_and_preds = train_rdd.map(lambda x: (x.label, lm.predict(x.features)))
-            # squares the error then adds all errors together divided by n
-            MSE = values_and_preds \
-                .map(lambda x: (x[0] - x[1])**2) \
-                .reduce(lambda x, y: x + y) / n_train
+                # Evalute the model on training data
+                values_and_preds = train_rdd.map(lambda x: (x.label, lm.predict(x.features)))
+                # squares the error then adds all errors together divided by n
+                MSE = values_and_preds \
+                    .map(lambda x: (x[0] - x[1])**2) \
+                    .reduce(lambda x, y: x + y) / n_train
 
-            results.append(MSE)
-            step_list.append(step)
+                MSE_results.append(MSE)
+                steps.append(step)
+                batch_fractions.append(batch_pct)
 
-    for i in zip(results,step_list):
+    for i in zip(MSE_results, steps, batch_fractions):
         print("mean squar error = " + str(i))
 
     # Output results
