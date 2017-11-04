@@ -20,9 +20,11 @@ from pyspark.sql import Row
 from pyspark.ml.regression import LinearRegression
 from pyspark.ml import Pipeline
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
-from pyspark.ml.evaluation import RegressionMetrics
+from pyspark.ml.feature import StandardScaler
+from pyspark.ml import param
 
 #import mllib
+from pyspark.mllib.evaluation import RegressionMetrics
 from pyspark.mllib.regression import LabeledPoint, LinearRegressionWithSGD, LinearRegressionModel
 from pyspark.mllib.feature import StandardScalar, StandardScalerModel
 
@@ -71,33 +73,36 @@ def get_reg_evals(predictions):
     return metrics.meanSquaredError, metrics.rootMeanSquaredError, metrics.explainedVariance
 
 def build_model(rdd):
+    k_folds = 10
     training_df = rdd.map(create_df_from_rdd)
-    
     cv_step = [x / float(100) for x in range(1, 20, 5)]
-    cv_batch_fraction = [x /float(10) for x in range(1, 10, 5)]
+    cv_batch_size = [x /float(10) for x in range(1, 10, 5)]
     regType= ["L1", "L2"]
 
     # lr model
-    lr = LinearRegression(maxIter=10, regParam=0.3, solver='gd')
+    lr = LinearRegression(maxIter=10, regParam=0.3, solver='sgd')
     pipeline = Pipeline(stages=[lr])
     paramGrid = ParamGridBuilder() \
-                .addGrid(
-    crossval = CrossValidator(
-        estimator=pipeline,
-        estimatorParamMaps=paramGrid,
-        evaluator=evaluator,
-        numFolds=numFolds)
+                .addGrid(lr.stepSize=cv_step)
+                .addGrid(lr.miniBatchFraction=cv_batch_size)
+                .addGrid(lr.updater=cv_batch_size)
 
-    val predictions = model.transform(test)
+    crossval = CrossValidator(\
+        estimator=pipeline, \
+        estimatorParamMaps=paramGrid, \
+        evaluator=evaluator, \
+        numFolds=k_folds)
+
+    lm = crossval.fit(trainingData)
+    predictions = lm.transform(test)
     predictions.show
-    val rmse = evaluator.evaluate(predictions)
-    model = crossval.fit(trainingData)
+    rmse = evaluator.evaluate(predictions)
 
 
-            MSE = values_and_preds \
-                .map(lambda x: (x[0] - x[1])**2) \
-                .reduce(lambda x, y: x + y) / values_and_preds.count()
-            results.append(MSE)
+    MSE = values_and_preds \
+        .map(lambda x: (x[0] - x[1])**2) \
+        .reduce(lambda x, y: x + y) / values_and_preds.count()
+    results.append(MSE)
 
 def cross_validate(rdd, train_percent=0.8, kfolds=10 ):
     for i in range(kfolds):
@@ -123,6 +128,10 @@ def main():
     conf = SparkConf().setMaster("local").setAppName("linear_regression.py")
     sc = SparkContext(conf = conf)
 
+    #spark session alternative, might need to do findspark or change spark bin
+    #spark = SparkSession.builder.master("local").appName("lr model") \
+    #        .config("spark.executor.memory", "1gb").getorCreate()
+
     # read in file
     data = sc.textFile(input_file_path)
 
@@ -132,10 +141,12 @@ def main():
 
     # convert attributes to floats/ints and make key/values
     parsed_pair_rdd = data.map(parse_row)
+    parsed_df = parsed_pair_rdd.map(create_df_from_rdd)
+    parsed_df.take(2)
 
     # attributes
     cv_step = [x / float(100) for x in range(1, 20, 5)]
-    cv_batch_fraction = [x /float(10) for x in range(1, 10, 5)]
+    cv_batch_fraction = [x / float(10) for x in range(1, 10, 5)]
     regType= ["L1", "L2"]
 
     mse_list = []
