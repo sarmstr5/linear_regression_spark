@@ -138,12 +138,15 @@ def evaluate_lm(train_set, test_set, step, batch_pct, reg, reg_param, iterations
                                        regType=reg, regParam=reg_param,\
                                        intercept=True, validateData=False )
 
-    values_and_preds = test_set.map(lambda x: (x.label, lm.predict(x.features)))
+    values_and_preds = test_set.map(lambda x: (x.label,
+                                               float(lm.predict(x.features))))
+
+    #values_and_preds = test_set.map(lambda x: (x.label, lm.predict(x.features)))
+    #return get_regr_evals(values_and_preds)
 
     # Finds sum of squares, to calc MSE and RMSE
     SSE = values_and_preds.map(lambda x: (x[0] - x[1])**2).reduce(lambda x, y: x + y) 
     return SSE
-    #return get_regr_evals(values_and_preds)
 
 def main():
     # input parameters
@@ -225,10 +228,11 @@ def main():
 
                         MSE = SSE / validate_rdd.count()
                         RMSE = MSE**(0.5)
+                        exp_var = 0
 
                         MSE_results.append(MSE)
                         RMSE_results.append(RMSE)
-                        exp_vars.append(0)
+                        exp_vars.append(exp_var)
 
                         #----End of CV----#
 
