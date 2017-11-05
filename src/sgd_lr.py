@@ -126,11 +126,27 @@ def cross_validate(rdd, k_folds, test_k):
                .map(lambda x: LabeledPoint(x[1][0], (x[1][1:])))
                     
     return train, test
-def results_to_df(*argv):
+def get_best_params(min_RMSE, result_tups):
+    return [tup for tup in results_tups if tup[0] == min_RMSE]
     
 def results_to_disk(*argv):
     for i in zip(*argv):
         print(",".join((str(j) for j in i)))
+
+def get_test_results(model, train_set, test_set):
+    # Evalute the model on training data
+    lm = LinearRegressionWithSGD.train(train_set, iterations=iterations, \
+                                       step=step, miniBatchFraction=batch_pct,\
+                                       regType=reg, regParam=reg_param,\
+                                       intercept=True, validateData=False )
+
+    values_and_preds = test_set.map(lambda x: (x.label, lm.predict(x.features)))
+
+    # squares the error then adds all errors together divided by n
+    MSE = values_and_preds.map(lambda x: (x[0] - x[1])**2) \
+        .reduce(lambda x, y: x + y) / test_set.count()
+
+    return MSE
 
 def main():
     # input parameters
@@ -165,65 +181,81 @@ def main():
 
     # convert attributes to floats/ints and make key/values
 
-    # attributes
-    cv_step = [x / float(100) for x in range(1, 2, 5)]
+    # SGD params
+    cv_step = [x / float(100) for x in range(1, 20, 3)]
     cv_batch_fraction = [x / float(100) for x in range(1, 100, 25)]
+    cv_reg_param = [x / float(100) for x in range(1, 20, 5)]
     regType= ["L1", "L2"]
+    iterations = 100
+    
+    # CV
     k_folds = 10
 
-    mse_list = []
-    steps = []
-    batch_fractions = []
-    reg_types = []
-    MSE_results = []
-    RMSE_results = []
-    MSE_avgs = []
-    RMSE_avgs = []
+    # metric lists
+    mse_list, steps, batch_fractions, reg_types, reg_params = [], [], [], [], 
+    MSE_results, RMSE_results, MSE_avgs, RMSE_avgs, model = [], [], [], [], [] 
 
     parsed_rdd = data.map(parse_row_for_cv)
     train_set, test_set = parsed_rdd.randomSplit([0.8, 0.2], seed=1234)
     train_set.persist()
-    n_train = train_set.count()
 
     for step in cv_step:
         for batch_pct in cv_batch_fraction:
             for reg in regType:
-                for k in range(k_folds):
-                    #print("on step and k_folds:{}\t{}\t{}\t{}".format(step, batch_pct, reg, k))
-
-                    # create CV sets
-                    train_rdd, validate_rdd = cross_validate(train_set, k_folds, k)
-
+                for reg_param in cv_reg_parm:
                     # Build model
-                    lm = LinearRegressionWithSGD.train(train_rdd, iterations=10,
-                                                       step=step,
-                                                       miniBatchFraction=batch_pct,
-                                                       regParam=0.0, regType=None,
-                                                       intercept=True, validateData=True )
+                    for k in range(k_folds):
+                        #----Start of CV----#
+                        #print("on step and k_folds:{}\t{}\t{}\t{}".format(step, batch_pct, reg, k))
 
-                    # Evalute the model on training data
-                    values_and_preds = validate_rdd.map(lambda x: (x.label, lm.predict(x.features)))
-                    # squares the error then adds all errors together divided by n
-                    MSE = values_and_preds \
-                        .map(lambda x: (x[0] - x[1])**2) \
-                        .reduce(lambda x, y: x + y) / n_train
+                        # create CV sets
+                        train_rdd, validate_rdd = cross_validate(train_set, k_folds, k)
+                        validate_rdd.cache()
 
-                    MSE_results.append(MSE)
-                    RMSE_results.append(MSE**(0.5))
-                    #-End of CV-#
+                        # train model
+                        lm = LinearRegressionWithSGD.train(train_rdd,
+                                                           iterations=iterations,
+                                                           step=step,
+                                                           miniBatchFraction=batch_pct,
+                                                           regType=reg,
+                                                           regParam=reg_param, 
+                                                           intercept=True,
+                                                           validateData=False )
 
-                MSE_avgs.append(np.mean(MSE_results))
-                RMSE_avgs.append(np.mean(RMSE_results))
-                steps.append(step)
-                batch_fractions.append(batch_pct)
-                reg_types.append(reg)
-                
-                MSE_results = []
-                RMSE_results = []
-                print("hello")
+                        # get n of validation set
+                        n_train = validate_rdd.count()
 
+                        # Evalute the model on training data
+                        values_and_preds = validate_rdd.map(lambda x: (x.label, lm.predict(x.features)))
 
-    results_to_disk(MSE_avgs, RMSE_avgs, steps, batch_fractions, reg_types)
+                        # squares the error then adds all errors together divided by n
+                        MSE = values_and_preds \
+                            .map(lambda x: (x[0] - x[1])**2) \
+                            .reduce(lambda x, y: x + y) / n_train
+
+                        MSE_results.append(MSE)
+                        RMSE_results.append(MSE**(0.5))
+                        #----End of CV----#
+
+                    MSE_avgs.append(np.mean(MSE_results))
+                    RMSE_avgs.append(np.mean(RMSE_results))
+                    steps.append(step)
+                    batch_fractions.append(batch_pct)
+                    reg_types.append(reg)
+                    reg_params.append(reg_param)
+                    models.append(lm) # is this a pointer or an object? may
+                    # need to pull the params 
+                    
+                    MSE_results = []
+                    RMSE_results = []
+
+    min_RMSE = min(RMSE_avgs)
+    best_model = find_best_params(min_RMSE, zip(MSE_avgs, RMSE_avgs, steps, batch_fractions,
+                                  reg_types, reg_params, models))
+
+    results_to_disk(MSE_avgs, RMSE_avgs, steps, batch_fractions, reg_types, reg_params)
+    
+    run_a
 
 if __name__ == "__main__":
     main()
