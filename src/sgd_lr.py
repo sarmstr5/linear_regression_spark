@@ -121,15 +121,15 @@ def main():
         print("you didnt give directory inputs, using test file")
         input_dir = "test_input"
         input_fn = "processed_tiny.csv"
-        input_file_path = os.path.join(input_dir, input_fn)
+        input_file_path = input_dir, input_fn)
         #input_file_path = get_abs_file_path(input_dir, input_fn)
         output_fn="test"
 
     else:
         input_fn = sys.argv[1]
         output_fn = sys.argv[2]
-        input_dir = "data"
-        input_file_path = get_abs_file_path(input_dir, input_fn)
+        input_dir = "data/"
+        input_file_path = input_dir + input_fn 
 
     # initialize spark
     conf = SparkConf().setMaster("local").setAppName("linear_regression.py")
@@ -149,8 +149,8 @@ def main():
     # convert attributes to floats/ints and make key/values
 
     # attributes
-    cv_step = [x / float(100) for x in range(1, 20, 5)]
-    cv_batch_fraction = [x / float(100) for x in range(1, 11, 5)]
+    cv_step = [x / float(100) for x in range(1, 20, 3)]
+    cv_batch_fraction = [x / float(100) for x in range(1, 20, 1)]
     regType= ["L1", "L2"]
     k_folds = 10
 
@@ -177,6 +177,7 @@ def main():
 
             # Evalute the model on training data
             values_and_preds = train_rdd.map(lambda x: (x.label, lm.predict(x.features)))
+
             # squares the error then adds all errors together divided by n
             MSE = values_and_preds \
                 .map(lambda x: (x[0] - x[1])**2) \
