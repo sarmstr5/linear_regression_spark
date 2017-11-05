@@ -183,7 +183,7 @@ def main():
     cv_step = [x / float(100) for x in range(1, 20, 3)]
     cv_batch_fraction = [x / float(100) for x in range(1, 100, 25)]
     cv_reg_param = [x / float(100) for x in range(1, 20, 5)]
-    regType= ["L1", "L2"]
+    regType= ["l1", "l2"]
     iterations = 100
     
     # CV
