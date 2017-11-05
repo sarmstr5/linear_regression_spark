@@ -205,7 +205,7 @@ def main():
     for step in cv_step:
         for batch_pct in cv_batch_fraction:
             for reg in regType:
-                for reg_param in cv_reg_parm:
+                for reg_param in cv_reg_param:
                     # Build model
                     for k in range(k_folds):
                         #----Start of CV----#
