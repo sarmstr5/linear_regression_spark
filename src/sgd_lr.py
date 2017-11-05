@@ -75,7 +75,7 @@ def save_rdd_to_disk(output_dir, output_fn, rdd):
     #save_default_dict(stripe_count_dict, output_path)
     #print("saving cooccurrence counts")
 
-def get_reg_evals(predictions):
+def get_regr_evals(predictions):
     metrics = RegressionMetrics(predictions)
     # mse, rmse, var
     return metrics.meanSquaredError, metrics.rootMeanSquaredError, metrics.explainedVariance
