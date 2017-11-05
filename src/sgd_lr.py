@@ -139,11 +139,11 @@ def evaluate_lm(train_set, test_set, step, batch_pct, reg, reg_param, iterations
                                        intercept=True, validateData=False )
 
     values_and_preds = test_set.map(lambda x: (x.label, lm.predict(x.features)))
-    return get_regr_evals(values_and_preds)
 
     # Finds sum of squares, to calc MSE and RMSE
-    #SSE = values_and_preds.map(lambda x: (x[0] - x[1])**2).reduce(lambda x, y: x + y) 
-    #return SSE
+    SSE = values_and_preds.map(lambda x: (x[0] - x[1])**2).reduce(lambda x, y: x + y) 
+    return SSE
+    #return get_regr_evals(values_and_preds)
 
 def main():
     # input parameters
@@ -216,13 +216,19 @@ def main():
                         validate_rdd.cache()
                         
                         # find evaluation metrics
-                        MSE, RMSE, exp_var = evaluate_lm(train_rdd, validate_rdd, \
-                                                         step, batch_pct, reg,
-                                                         reg_param, iterations)
+                        #MSE, RMSE, exp_var = evaluate_lm(train_rdd, validate_rdd, \
+                        #                                 step, batch_pct, reg,
+                        #                                 reg_param, iterations)
+
+                        SEE = evaluate_lm(train_rdd, validate_rdd, step,\
+                                          batch_pct,  reg, reg_param, iterations)
+
+                        MSE = SSE / validate_rdd.count()
+                        RMSE = MSE**(0.5)
 
                         MSE_results.append(MSE)
                         RMSE_results.append(RMSE)
-                        exp_vars.append(exp_var)
+                        exp_vars.append(0)
 
                         #----End of CV----#
 
@@ -253,11 +259,15 @@ def main():
     # remove lists to reduce RAM
     RMSE_avgs, steps, batch_fractions, reg_types, reg_params = None, None, None, None, None
 
-    MSE, RMSE, exp_var = evaluate_lm(train_set, test_set, step, batch_pct, \
-                                     reg, reg_param, iterations)
+    #MSE, RMSE, exp_var = evaluate_lm(train_set, test_set, step, batch_pct, \
+    #                                 reg, reg_param, iterations)
 
-    #MSE = SSE / test_set.count()
-    #RMSE = MSE**(0.5)
+    SSE = evaluate_lm(train_set, test_set, step, batch_pct, reg, reg_param, iterations)
+
+    MSE = SSE / test_set.count()
+    RMSE = MSE**(0.5)
+    exp_var=0
+
     fn = "test_results.csv"
     results_to_disk(fn, MSE, RMSE, exp_var, min_train_MSE, step, batch_pct, reg, reg_param)
 
