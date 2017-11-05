@@ -131,7 +131,7 @@ def results_to_disk(fn, *argv):
         for row in zip(*argv):
             results.write(",".join((str(col) for col in row)))
 
-def evaluate_lm(train_set, test_set, iterations=100, step, batch_pct, reg, reg_param):
+def evaluate_lm(train_set, test_set, step, batch_pct, reg, reg_param, iterations=100):
     # Evalute the model on training data
     lm = LinearRegressionWithSGD.train(train_set, iterations=iterations, \
                                        step=step, miniBatchFraction=batch_pct,\
@@ -216,8 +216,9 @@ def main():
                         validate_rdd.cache()
                         
                         # find evaluation metrics
-                        MSE, RMSE, exp_var = evaluate_lm(train_rdd, validate_rdd, iterations,\
-                                                         step, batch_pct, reg, reg_param)
+                        MSE, RMSE, exp_var = evaluate_lm(train_rdd, validate_rdd, \
+                                                         step, batch_pct, reg,
+                                                         reg_param, iterations)
 
                         MSE_results.append(MSE)
                         RMSE_results.append(RMSE)
@@ -252,8 +253,8 @@ def main():
     # remove lists to reduce RAM
     RMSE_avgs, steps, batch_fractions, reg_types, reg_params = None, None, None, None, None
 
-    MSE, RMSE, exp_var = evaluate_lm(train_set, test_set, iterations, step, \
-                                     batch_pct, reg, reg_param)
+    MSE, RMSE, exp_var = evaluate_lm(train_set, test_set, step, batch_pct, \
+                                     reg, reg_param, iterations)
 
     #MSE = SSE / test_set.count()
     #RMSE = MSE**(0.5)
