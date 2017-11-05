@@ -59,19 +59,14 @@ def parse_row_for_cv(line_list):
         row_id = int(line_list[0])
     except ValueError:
         print("\n------------\n!!!!!!!!!********########\n---------------")
-        print("\n------------\n!!!!!!!!!********########\n---------------")
         print(line_list)
-        print(line_list[6])
-        print(float(line_list[7]))
-        print(float(line_list[8])) # double check
-        print(float(line_list[9]))
+        print("\n------------\n!!!!!!!!!********########\n---------------")
         raise ValueError
 
     #not currently using but may need some of the value
     #x_values = [line_list[0], line_list[1], line_list[2],  line_list[3],  line_list[4],
     #          int(line_list[5]),  float(line_list[6]),  float(line_list[7]),
     #          float(line_list[8]), float(line_list[9]),  line_list[10]]
-
     return (row_id, [y, lat_dist, long_dist])
 
 def save_rdd_to_disk(output_dir, output_fn, rdd):
@@ -118,22 +113,25 @@ def build_model(rdd):
     results.append(MSE)
 
 def cross_validate(rdd, k_folds, test_k):
-    # take mod
+    # use mod and row number to filter train and validation sets
+    # remove row id, no longer needed
     train = rdd.filter(lambda x: x[0] % k_folds != test_k) \
                .map(lambda x: LabeledPoint(x[1][0], (x[1][1:])))
 
     test = rdd.filter(lambda x: x[0] % k_folds == test_k)  \
                .map(lambda x: LabeledPoint(x[1][0], (x[1][1:])))
-                    
     return train, test
-def get_best_params(min_RMSE, result_tups):
-    return [tup for tup in results_tups if tup[0] == min_RMSE]
-    
-def results_to_disk(*argv):
-    for i in zip(*argv):
-        print(",".join((str(j) for j in i)))
 
-def get_test_results(model, train_set, test_set):
+def get_best_params(min_RMSE, result_tups):
+    return [tup[1:] for tup in results_tups if tup[0] == min_RMSE]
+    
+def results_to_disk(fn, *argv):
+    with open(fn, 'wr') as results:
+        # zip to make rows - take ith element of each list
+        for row in zip(*argv):
+            results.write(",".join((str(col) for col in row)))
+
+def evaluate_lm(train_set, test_set, iterations=100, step, batch_pct, reg, reg_param):
     # Evalute the model on training data
     lm = LinearRegressionWithSGD.train(train_set, iterations=iterations, \
                                        step=step, miniBatchFraction=batch_pct,\
@@ -141,15 +139,15 @@ def get_test_results(model, train_set, test_set):
                                        intercept=True, validateData=False )
 
     values_and_preds = test_set.map(lambda x: (x.label, lm.predict(x.features)))
+    return get_regr_evals(values_and_preds)
 
-    # squares the error then adds all errors together divided by n
-    MSE = values_and_preds.map(lambda x: (x[0] - x[1])**2) \
-        .reduce(lambda x, y: x + y) / test_set.count()
-
-    return MSE
+    # Finds sum of squares, to calc MSE and RMSE
+    #SSE = values_and_preds.map(lambda x: (x[0] - x[1])**2).reduce(lambda x, y: x + y) 
+    #return SSE
 
 def main():
     # input parameters
+    # filenames not given use default
     if len(sys.argv) < 3:
         print("you didnt give directory inputs, using test file")
         input_dir = "test_input"
@@ -158,6 +156,7 @@ def main():
         #input_file_path = get_abs_file_path(input_dir, input_fn)
         output_fn="test"
 
+    # filenames given
     else:
         input_fn = sys.argv[1]
         output_fn = sys.argv[2]
@@ -179,7 +178,6 @@ def main():
     header = data.first()
     data = data.filter(lambda x: x != header)
 
-    # convert attributes to floats/ints and make key/values
 
     # SGD params
     cv_step = [x / float(100) for x in range(1, 20, 3)]
@@ -192,13 +190,18 @@ def main():
     k_folds = 10
 
     # metric lists
-    mse_list, steps, batch_fractions, reg_types, reg_params = [], [], [], [], 
-    MSE_results, RMSE_results, MSE_avgs, RMSE_avgs, model = [], [], [], [], [] 
+    steps, batch_fractions, reg_types, reg_params = [], [], [], []
+    MSE_results, RMSE_results, exp_vars = [], [], [] 
+    MSE_avgs, RMSE_avgs, exp_var_avgs = [], [], []
 
+    # returns ((row_id, [y, lat_dist, long_dist]), ...)
     parsed_rdd = data.map(parse_row_for_cv)
+    # split rdd into train and test sets
     train_set, test_set = parsed_rdd.randomSplit([0.8, 0.2], seed=1234)
     train_set.persist()
 
+    # run cross validation on linear regression model
+    # SGD step (alpha), batch percent
     for step in cv_step:
         for batch_pct in cv_batch_fraction:
             for reg in regType:
@@ -211,51 +214,51 @@ def main():
                         # create CV sets
                         train_rdd, validate_rdd = cross_validate(train_set, k_folds, k)
                         validate_rdd.cache()
-
-                        # train model
-                        lm = LinearRegressionWithSGD.train(train_rdd,
-                                                           iterations=iterations,
-                                                           step=step,
-                                                           miniBatchFraction=batch_pct,
-                                                           regType=reg,
-                                                           regParam=reg_param, 
-                                                           intercept=True,
-                                                           validateData=False )
-
-                        # get n of validation set
-                        n_train = validate_rdd.count()
-
-                        # Evalute the model on training data
-                        values_and_preds = validate_rdd.map(lambda x: (x.label, lm.predict(x.features)))
-
-                        # squares the error then adds all errors together divided by n
-                        MSE = values_and_preds \
-                            .map(lambda x: (x[0] - x[1])**2) \
-                            .reduce(lambda x, y: x + y) / n_train
+                        
+                        # find evaluation metrics
+                        MSE, RMSE, exp_var = evaluate_lm(train_rdd, validate_rdd, iterations,\
+                                                         step, batch_pct, reg, reg_param)
 
                         MSE_results.append(MSE)
-                        RMSE_results.append(MSE**(0.5))
+                        RMSE_results.append(RMSE)
+                        exp_vars.append(exp_var)
+
                         #----End of CV----#
 
+                    # update eval lists
                     MSE_avgs.append(np.mean(MSE_results))
                     RMSE_avgs.append(np.mean(RMSE_results))
+                    exp_var_avgs.append(np.mean(exp_vars))
+
+                    # reset cv lists
+                    MSE_results, RMSE_results, exp_vars = [], [], [] 
+
+                    # update param lists
                     steps.append(step)
                     batch_fractions.append(batch_pct)
                     reg_types.append(reg)
                     reg_params.append(reg_param)
-                    models.append(lm) # is this a pointer or an object? may
-                    # need to pull the params 
-                    
-                    MSE_results = []
-                    RMSE_results = []
 
-    min_RMSE = min(RMSE_avgs)
-    best_model = find_best_params(min_RMSE, zip(MSE_avgs, RMSE_avgs, steps, batch_fractions,
-                                  reg_types, reg_params, models))
+    # Finished Grid Search Cross Validation runs
+    results_to_disk(RMSE_avgs, MSE_avgs, steps, batch_fractions, reg_types, reg_params)
+    MSE_avgs, MSE_results, RMSE_results, exp_vars = None, None, None, None
+    min_train_MSE = min(RMSE_avgs)
 
-    results_to_disk(MSE_avgs, RMSE_avgs, steps, batch_fractions, reg_types, reg_params)
-    
-    run_a
+    step, batch_pct, reg, reg_param = find_best_params(min_train_MSE,\
+                                                       zip(RMSE_avgs, steps,\
+                                                            batch_fractions,\
+                                                            reg_types, reg_params))
+
+    # remove lists to reduce RAM
+    RMSE_avgs, steps, batch_fractions, reg_types, reg_params = None, None, None, None, None
+
+    MSE, RMSE, exp_var = evaluate_lm(train_set, test_set, iterations, step, \
+                                     batch_pct, reg, reg_param)
+
+    #MSE = SSE / test_set.count()
+    #RMSE = MSE**(0.5)
+    fn = "test_results.csv"
+    results_to_disk(fn, MSE, RMSE, exp_var, min_train_MSE, step, batch_pct, reg, reg_param)
 
 if __name__ == "__main__":
     main()
