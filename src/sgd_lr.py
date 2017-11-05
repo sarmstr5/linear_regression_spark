@@ -47,14 +47,26 @@ def create_df_from_rdd(line_list):
 
 # parse the data, convert str to floats and ints as appropriate
 def parse_row_for_cv(line_list):
+    line_list = line_list.split(',')
     # row_id, id, vendor_id, pickup_datetime, dropoff_datetime,
     # passenger_count, pickup_longitude, pickup_latitude, 
     # dropoff_longitude, dropoff_latitude, store_and_fwd_flag,
     # trip_duration
-    long_dist = abs(float(line_list[6]) - float(line_list[8])) # double check
-    lat_dist = abs(float(line_list[7]) - float(line_list[9]))
-    y = int(line_list[-1])
-    row_id = int(line_list[0])
+    try:
+        long_dist = abs(float(line_list[6]) - float(line_list[8])) # double check
+        lat_dist = abs(float(line_list[7]) - float(line_list[9]))
+        y = int(line_list[-1])
+        row_id = int(line_list[0])
+    except ValueError:
+        print("\n------------\n!!!!!!!!!********########\n---------------")
+        print("\n------------\n!!!!!!!!!********########\n---------------")
+        print(line_list)
+        print(line_list[6])
+        print(float(line_list[7]))
+        print(float(line_list[8])) # double check
+        print(float(line_list[9]))
+        raise ValueError
+
     #not currently using but may need some of the value
     #x_values = [line_list[0], line_list[1], line_list[2],  line_list[3],  line_list[4],
     #          int(line_list[5]),  float(line_list[6]),  float(line_list[7]),
@@ -114,7 +126,8 @@ def cross_validate(rdd, k_folds, test_k):
                .map(lambda x: LabeledPoint(x[1][0], (x[1][1:])))
                     
     return train, test
-
+def results_to_df(*argv):
+    
 def results_to_disk(*argv):
     for i in zip(*argv):
         print(",".join((str(j) for j in i)))
@@ -167,7 +180,7 @@ def main():
     MSE_avgs = []
     RMSE_avgs = []
 
-    parsed_rdd = data.map(parse_row_for_cv).persist()
+    parsed_rdd = data.map(parse_row_for_cv)
     train_set, test_set = parsed_rdd.randomSplit([0.8, 0.2], seed=1234)
     train_set.persist()
     n_train = train_set.count()
@@ -176,9 +189,9 @@ def main():
         for batch_pct in cv_batch_fraction:
             for reg in regType:
                 for k in range(k_folds):
-                    print(train_set.take(1))
-                    print("on step and k_folds:{}\t{}\t{}\t{}"
-                          .format(step, batch_pct, reg, k))
+                    #print("on step and k_folds:{}\t{}\t{}\t{}".format(step, batch_pct, reg, k))
+
+                    # create CV sets
                     train_rdd, validate_rdd = cross_validate(train_set, k_folds, k)
 
                     # Build model
@@ -189,7 +202,7 @@ def main():
                                                        intercept=True, validateData=True )
 
                     # Evalute the model on training data
-                    values_and_preds = train_rdd.map(lambda x: (x.label, lm.predict(x.features)))
+                    values_and_preds = validate_rdd.map(lambda x: (x.label, lm.predict(x.features)))
                     # squares the error then adds all errors together divided by n
                     MSE = values_and_preds \
                         .map(lambda x: (x[0] - x[1])**2) \
@@ -197,7 +210,7 @@ def main():
 
                     MSE_results.append(MSE)
                     RMSE_results.append(MSE**(0.5))
-                    #-CROSS Validation___#
+                    #-End of CV-#
 
                 MSE_avgs.append(np.mean(MSE_results))
                 RMSE_avgs.append(np.mean(RMSE_results))
@@ -208,6 +221,7 @@ def main():
                 MSE_results = []
                 RMSE_results = []
                 print("hello")
+
 
     results_to_disk(MSE_avgs, RMSE_avgs, steps, batch_fractions, reg_types)
 
