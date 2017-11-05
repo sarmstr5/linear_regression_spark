@@ -26,7 +26,7 @@ from pyspark.ml import param
 #import mllib
 from pyspark.mllib.evaluation import RegressionMetrics
 from pyspark.mllib.regression import LabeledPoint, LinearRegressionWithSGD, LinearRegressionModel
-from pyspark.mllib.feature import StandardScalar, StandardScalerModel
+#from pyspark.mllib.feature import StandardScalar, StandardScalerModel
 
 # import python stuff
 from collections import defaultdict, Counter
