@@ -220,7 +220,7 @@ def main():
                         #                                 step, batch_pct, reg,
                         #                                 reg_param, iterations)
 
-                        SEE = evaluate_lm(train_rdd, validate_rdd, step,\
+                        SSE = evaluate_lm(train_rdd, validate_rdd, step,\
                                           batch_pct,  reg, reg_param, iterations)
 
                         MSE = SSE / validate_rdd.count()
