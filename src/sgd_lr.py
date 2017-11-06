@@ -182,12 +182,25 @@ def main():
     data = data.filter(lambda x: x != header)
 
 
-    # SGD params
-    cv_step = [x / float(100) for x in range(1, 20, 3)]
-    cv_batch_fraction = [x / float(100) for x in range(1, 100, 25)]
-    cv_reg_param = [x / float(100) for x in range(1, 20, 5)]
-    regType= ["l1", "l2"]
+    # Optimization params
+    SGD_run = False
+    reg_run = False
     iterations = 100
+    cv_step = [x / float(100) for x in range(1, 20, 3)]
+
+    #SGD params
+    if SGD_run:
+        cv_batch_fraction = [x / float(100) for x in range(1, 100, 25)]
+    else:
+        cv_batch_fraction = [1]
+
+    # Regularization params
+    if reg_run:
+        cv_reg_param = [x / float(100) for x in range(1, 20, 5)]
+        regType= ["l1", "l2"]
+    else:
+        cv_reg_parm = [0]
+        regType= [None]
     
     # CV
     k_folds = 10
