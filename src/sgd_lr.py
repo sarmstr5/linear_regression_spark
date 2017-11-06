@@ -35,15 +35,14 @@ import csv
 import sys
 import pickle
 
-# parse the data, convert str to floats and ints as appropriate
-def create_df_from_rdd(line_list):
-    # using longitude coordinates
-    lo_dist = abs(float(line_list[5]) - float(line_list[7])) # double check
-    # using latitude coordinates
-    la_dist = abs(float(line_list[6]) - float(line_list[8]))
-    # time of flight
-    y = int(line_list[-1])
-    return Row(flight_time=y, lat_dist=la_dist, long_dist=lo_dist)
+
+def results_to_disk(fn, *argv):
+    print("this is the fn?")
+    print(fn)
+    with open(fn, 'a') as results:
+        # zip to make rows - take ith element of each list
+        for row in zip(*argv):
+            results.write(",".join(str(col) for col in row))
 
 # parse the data, convert str to floats and ints as appropriate
 def parse_row_for_cv(line_list):
@@ -80,37 +79,6 @@ def get_regr_evals(predictions):
     # mse, rmse, var
     return metrics.meanSquaredError, metrics.rootMeanSquaredError, metrics.explainedVariance
 
-def build_model(rdd):
-    k_folds = 10
-    training_df = rdd.map(create_df_from_rdd)
-    cv_step = [x / float(100) for x in range(1, 20, 5)]
-    cv_batch_size = [x /float(10) for x in range(1, 10, 5)]
-    regType= ["L1", "L2"]
-
-    # lr model
-    lr = LinearRegression(maxIter=10, regParam=0.3, solver='sgd')
-    pipeline = Pipeline(stages=[lr])
-    paramGrid = ParamGridBuilder() \
-    #            .addGrid(lr.stepSize=cv_step) \
-    #            .addGrid(lr.miniBatchFraction=cv_batch_size) \
-    #            .addGrid(lr.updater=cv_batch_size)
-
-    crossval = CrossValidator(\
-        estimator=pipeline, \
-        estimatorParamMaps=paramGrid, \
-        evaluator=evaluator, \
-        numFolds=k_folds)
-
-    lm = crossval.fit(trainingData)
-    predictions = lm.transform(test)
-    predictions.show
-    rmse = evaluator.evaluate(predictions)
-
-
-    MSE = values_and_preds \
-        .map(lambda x: (x[0] - x[1])**2) \
-        .reduce(lambda x, y: x + y) / values_and_preds.count()
-    results.append(MSE)
 
 def cross_validate(rdd, k_folds, test_k):
     # use mod and row number to filter train and validation sets
@@ -123,13 +91,8 @@ def cross_validate(rdd, k_folds, test_k):
     return train, test
 
 def get_best_params(min_RMSE, result_tups):
-    return [tup[1:] for tup in results_tups if tup[0] == min_RMSE]
+    return [tup[1:] for tup in result_tups if tup[0] == min_RMSE]
     
-def results_to_disk(fn, *argv):
-    with open(fn, 'wr') as results:
-        # zip to make rows - take ith element of each list
-        for row in zip(*argv):
-            results.write(",".join((str(col) for col in row)))
 
 def evaluate_lm(train_set, test_set, step, batch_pct, reg, reg_param, iterations=100):
     # Evalute the model on training data
@@ -154,7 +117,7 @@ def main():
     if len(sys.argv) < 3:
         print("you didnt give directory inputs, using test file")
         input_dir = "test_input"
-        input_fn = "thousand_processed.csv"
+        input_fn = "tiny_processed.csv"
         input_file_path = os.path.join(input_dir, input_fn)
         #input_file_path = get_abs_file_path(input_dir, input_fn)
         output_fn="test"
@@ -199,7 +162,7 @@ def main():
         cv_reg_param = [x / float(100) for x in range(1, 20, 5)]
         regType= ["l1", "l2"]
     else:
-        cv_reg_parm = [0]
+        cv_reg_param = [0]
         regType= [None]
     
     # CV
@@ -264,11 +227,12 @@ def main():
                     reg_params.append(reg_param)
 
     # Finished Grid Search Cross Validation runs
-    results_to_disk(RMSE_avgs, MSE_avgs, steps, batch_fractions, reg_types, reg_params)
+    fn = "training_results.csv"
+    results_to_disk(fn, RMSE_avgs, MSE_avgs, steps, batch_fractions, reg_types, reg_params)
     MSE_avgs, MSE_results, RMSE_results, exp_vars = None, None, None, None
     min_train_MSE = min(RMSE_avgs)
 
-    step, batch_pct, reg, reg_param = find_best_params(min_train_MSE,\
+    step, batch_pct, reg, reg_param = get_best_params(min_train_MSE,\
                                                        zip(RMSE_avgs, steps,\
                                                             batch_fractions,\
                                                             reg_types, reg_params))
