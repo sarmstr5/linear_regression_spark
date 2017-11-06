@@ -118,11 +118,12 @@ def main():
     # filenames given, assuming in hydra
     else:
         # expecting full filepath from bash
-        input_file_path = sys.argv[1]
+        input_fn = sys.argv[1]
+        output_fn = sys.argv[2]
+        input_dir = "data"
+        input_file_path = os.path.join(input_dir, input_fn+".csv")
         print("\n________------------________\n")
         print(input_file_path)
-        output_fn = sys.argv[2]
-        #input_file_path = os.path.join(input_dir, input_fn+".csv")
 
     # initialize spark
     conf = SparkConf().setMaster("local").setAppName("linear_regression.py")
@@ -225,10 +226,10 @@ def main():
     # save to disk
     fn = os.path.join("..","results","training_results.csv")
     # izip longest to repeat file_path_name
-    train_results_to_disk(fn, izip_longest([input_file_path], RMSE_avgs, 
+    train_results_to_disk(fn, izip_longest([input_fn], RMSE_avgs, 
                             MSE_avgs, steps, batch_fractions,
                             reg_types, reg_params, timings,
-                            fillvalue=input_file_path))
+                            fillvalue=input_fn))
 
     # delete result lists to save RAM
     del timings, MSE_avgs, MSE_results, RMSE_results, exp_vars 
@@ -254,7 +255,7 @@ def main():
 
     # save test results to local disk
     fn = os.path.join("..","results", output_fn)
-    test_results_to_disk(fn, (input_file_path, MSE, RMSE, exp_var,
+    test_results_to_disk(fn, (input_fn, MSE, RMSE, exp_var,
                               min_train_MSE, step, batch_pct, reg,
                               reg_param, SGD_run, reg_run,
                               time.time() - test_start,
