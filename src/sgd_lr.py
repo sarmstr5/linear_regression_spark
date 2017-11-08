@@ -255,7 +255,7 @@ def main():
     del timings, MSE_avgs, MSE_results, RMSE_results, exp_vars 
 
     # next find best params, create lazy zip to reduce memory
-    min_train_MSE = min(RMSE_avgs)
+    min_train_RMSE = min(RMSE_avgs)
 
     # results == [(RMSEi, stepi, batch_fraci, reg_typei, reg_paramsi), ... ]
     zipped_results = izip(RMSE_avgs, steps, batch_fractions, reg_types, reg_params)
@@ -276,7 +276,7 @@ def main():
     # save test results to local disk
     fn = os.path.join("..","results", output_fn)
     test_results_to_disk(fn, (input_fn, MSE, RMSE, exp_var,
-                              min_train_MSE, step, batch_pct, reg,
+                              min_train_RMSE, step, batch_pct, reg,
                               reg_param, SGD_run, reg_run,
                               time.time() - test_start,
                               time.time() - start_time))
