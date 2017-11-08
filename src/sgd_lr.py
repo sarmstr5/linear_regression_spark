@@ -34,6 +34,7 @@ import os
 import csv
 import sys
 import pickle
+import math
 
 # parse the data, convert str to floats and ints as appropriate
 def create_df_from_rdd(line_list):
@@ -44,6 +45,23 @@ def create_df_from_rdd(line_list):
     # time of flight
     y = int(line_list[-1])
     return Row(flight_time=y, lat_dist=la_dist, long_dist=lo_dist)
+
+def calculate_haversine_dist(lat1, lon1, lat2, lon2):
+    # haverside distance for a sphere can be calculated via law of haversines
+    # hav(c) = hav(a-b) + sin(a) * sin(b)* hav(C)
+    #
+    r_km = 6371; # Radius of the earth in km
+    lat_dist = convert_to_rads(lat2-lat1)
+    lon_dist = convert_to_rads(lon2-lon1)
+    a = math.sin(lat_dist / 2.0) * math.sin(lat_dist / 2.0) + \
+        math.cos(convert_to_rads(lat1)) * math.cos(convert_to_rads(lat2)) *\
+        math.sin(lon_dist / 2.0) * math.sin(lon_dist / 2.0)
+    c = 2 * math.atanh(math.sqrt(a), math.sqrt(1-a))
+  return r_km * c # distance in km
+
+
+def convert_to_rads(deg):
+    return deg * (math.pi/180)
 
 # parse the data, convert str to floats and ints as appropriate
 def parse_row_for_cv(line_list):
