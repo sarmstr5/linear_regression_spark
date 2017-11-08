@@ -48,21 +48,32 @@ def test_results_to_disk(fn, metrics):
 
 
 # parse the data, convert str to floats and ints as appropriate
-def parse_row_for_cv(line_list):
-    line_list = line_list.split(',')
+def parse_row_for_cv(line):
+    def get_params(line_list):
+        long_dist = abs(float(line_list[6]) - float(line_list[8])) # double check
+        lat_dist = abs(float(line_list[7]) - float(line_list[9]))
+        y = int(line_list[-1])
+        row_id = int(line_list[0])
+        return long_dist, lat_dist, y, row_id
+
+    param_list = line.split(',')
     # row_id, id, vendor_id, pickup_datetime, dropoff_datetime,
     # passenger_count, pickup_longitude, pickup_latitude, 
     # dropoff_longitude, dropoff_latitude, store_and_fwd_flag,
     # trip_duration
     try:
-        long_dist = abs(float(line_list[6]) - float(line_list[8])) # double check
-        lat_dist = abs(float(line_list[7]) - float(line_list[9]))
-        y = int(line_list[-1])
-        row_id = int(line_list[0])
+        long_dist, lat_dist, y, row_id = get_params(param_list)
+
     except ValueError:
-        print("\n------------\n!!!!!!!!!********########\n---------------")
-        print(line_list)
-        raise ValueError
+        try:
+            # for some reason some of the files have utf-8
+            encoded_list = [str(i.encode('utf-8')) for i in param_list]
+            long_dist, lat_dist, y, row_id = get_params(param_list)
+        except e:
+            print("\n------------\n!!!!!!!!!********########\n---------------")
+            print(line_list)
+            print(e)
+
 
     #not currently using but may need some of the value
     #x_values = [line_list[0], line_list[1], line_list[2],  line_list[3],  line_list[4],
@@ -109,10 +120,9 @@ def main():
     if len(sys.argv) < 3:
         print("you didnt give directory inputs, using test file")
         input_dir = "test_input"
-        #input_fn = "tiny_processed"
-        input_fn = "thousand_processed"
+        input_fn = "tiny_processed"
+        #input_fn = "thousand_processed"
         input_file_path = os.path.join(input_dir, input_fn+".csv")
-        #input_file_path = get_abs_file_path(input_dir, input_fn)
         output_fn="test"
 
     # filenames given, assuming in hydra
@@ -137,20 +147,20 @@ def main():
     data = data.filter(lambda x: x != header)
 
     # Optimization params
-    SGD_run = True
+    SGD_run = False
     reg_run = False
     iterations = 100
-    cv_step = [x / float(100) for x in range(1, 10, 3)]
+    cv_step = [x / float(1000) for x in range(1, 100, 10)]
 
     #SGD params, how much of the data is looked at each step
     if SGD_run:
-        cv_batch_fraction = [x / float(100) for x in range(1, 75, 25)]
+        cv_batch_fraction = [x / float(100) for x in range(1, 21, 3)]
     else:
         cv_batch_fraction = [1]
 
     # Regularization params
     if reg_run:
-        cv_reg_param = [x / float(100) for x in range(1, 20, 5)]
+        cv_reg_param = [x / float(1000) for x in range(1, 50, 5)]
         regType= ["l1", "l2"]
     else:
         cv_reg_param = [0]
@@ -168,7 +178,8 @@ def main():
     # returns ((row_id, [y, lat_dist, long_dist]), ...)
     parsed_rdd = data.map(parse_row_for_cv)
     # split rdd into train and test sets
-    train_set, test_set = parsed_rdd.randomSplit([0.8, 0.2], seed=1234)
+    #train_set, test_set = parsed_rdd.randomSplit([0.8, 0.2], seed=1234)
+    train_set, test_set = parsed_rdd.randomSplit([0.8, 0.2])
     train_set.cache()
 
     # run cross validation on linear regression model
@@ -181,7 +192,6 @@ def main():
                     cv_start = time.time()
                     for k in range(k_folds):
                         #----Start of CV----#
-                        #print("on step and k_folds:{}\t{}\t{}\t{}".format(step, batch_pct, reg, k))
 
                         # create CV sets
                         train_rdd, validate_rdd = cv_split(train_set, k_folds, k)
@@ -191,13 +201,6 @@ def main():
                         MSE, RMSE, exp_var = evaluate_lm(train_rdd, validate_rdd, 
                                                          step, batch_pct, reg,
                                                          reg_param, iterations)
-
-                        #SSE = evaluate_lm(train_rdd, validate_rdd, step,\
-                        #                  batch_pct,  reg, reg_param, iterations)
-
-                        #MSE = SSE / validate_rdd.count()
-                        #RMSE = MSE**(0.5)
-                        #exp_var = 0
 
                         MSE_results.append(MSE)
                         RMSE_results.append(RMSE)
