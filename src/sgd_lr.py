@@ -58,7 +58,7 @@ def calculate_haversine_dist(lat1, lon1, lat2, lon2):
         math.cos(convert_to_rads(lat1)) * math.cos(convert_to_rads(lat2)) *\
         math.sin(lon_dist / 2.0) * math.sin(lon_dist / 2.0)
     c = 2 * math.atanh(math.sqrt(a), math.sqrt(1-a))
-  return r_km * c # distance in km
+    return r_km * c # distance in km
 
 
 def convert_to_rads(deg):
@@ -164,14 +164,14 @@ def main():
     data = data.filter(lambda x: x != header)
 
     # Optimization params
-    SGD_run = False
+    SGD_run = True
     reg_run = False
     iterations = 100
-    cv_step = [x / float(1000) for x in range(1, 100, 10)]
+    cv_step = [x / float(1000) for x in range(80, 120, 10)]
 
     #SGD params, how much of the data is looked at each step
     if SGD_run:
-        cv_batch_fraction = [x / float(100) for x in range(1, 21, 3)]
+        cv_batch_fraction = [x / float(100) for x in range(10, 21, 5)]
     else:
         cv_batch_fraction = [1]
 
@@ -259,7 +259,7 @@ def main():
 
     # results == [(RMSEi, stepi, batch_fraci, reg_typei, reg_paramsi), ... ]
     zipped_results = izip(RMSE_avgs, steps, batch_fractions, reg_types, reg_params)
-    step, batch_pct, reg, reg_param = get_best_params(min_train_MSE, zipped_results)
+    step, batch_pct, reg, reg_param = get_best_params(min_train_RMSE, zipped_results)
 
     # delete param lists to save RAM
     del RMSE_avgs, steps, batch_fractions, reg_types, reg_params
