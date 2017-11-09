@@ -164,8 +164,8 @@ def main():
     data = data.filter(lambda x: x != header)
 
     # Optimization params
-    SGD_run = True
-    reg_run = True
+    SGD_run = False
+    reg_run = False
     iterations = 100
     cv_step = [x / float(1000) for x in range(80, 120, 10)]
 
