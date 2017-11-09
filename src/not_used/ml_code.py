@@ -40,3 +40,19 @@ def build_model(rdd):
         .map(lambda x: (x[0] - x[1])**2) \
         .reduce(lambda x, y: x + y) / values_and_preds.count()
     results.append(MSE)
+
+def calculate_haversine_dist(lat1, lon1, lat2, lon2):
+    # haverside distance for a sphere can be calculated via law of haversines
+    # hav(c) = hav(a-b) + sin(a) * sin(b)* hav(C)
+    #
+	def convert_to_rads(deg):
+		return deg * (math.pi/180)
+	
+    r_km = 6371; # Radius of the earth in km
+    lat_dist = convert_to_rads(lat2-lat1)
+    lon_dist = convert_to_rads(lon2-lon1)
+    hav_a = math.sin(lat_dist / 2.0) * math.sin(lat_dist / 2.0) + \
+        math.cos(convert_to_rads(lat1)) * math.cos(convert_to_rads(lat2)) *\
+        math.sin(lon_dist / 2.0) * math.sin(lon_dist / 2.0)
+    hav_c = 2 * math.atanh(math.sqrt(a), math.sqrt(1-a))
+    return r_km * hav_c # distance in km

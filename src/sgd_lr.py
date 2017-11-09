@@ -42,32 +42,20 @@ def train_results_to_disk(fn, zipped_metrics):
         for row in zipped_metrics:
             wr.writerow(row)
 
+# this is a single row so no need to iterate
 def test_results_to_disk(fn, metrics):
     with open(fn, 'a') as results:
         wr = csv.writer(results)
         wr.writerow(metrics)
 
-def calculate_haversine_dist(lat1, lon1, lat2, lon2):
-    # haverside distance for a sphere can be calculated via law of haversines
-    # hav(c) = hav(a-b) + sin(a) * sin(b)* hav(C)
-    #
-    r_km = 6371; # Radius of the earth in km
-    lat_dist = convert_to_rads(lat2-lat1)
-    lon_dist = convert_to_rads(lon2-lon1)
-    hav_a = math.sin(lat_dist / 2.0) * math.sin(lat_dist / 2.0) + \
-        math.cos(convert_to_rads(lat1)) * math.cos(convert_to_rads(lat2)) *\
-        math.sin(lon_dist / 2.0) * math.sin(lon_dist / 2.0)
-    hav_c = 2 * math.atanh(math.sqrt(a), math.sqrt(1-a))
-    return r_km * hav_c # distance in km
-
-
-def convert_to_rads(deg):
-    return deg * (math.pi/180)
 
 # parse the data, convert str to floats and ints as appropriate
 def parse_row_for_cv(line):
+    #x_values = [line_list[0], line_list[1], line_list[2],  line_list[3],  line_list[4],
+    #          int(line_list[5]),  float(line_list[6]),  float(line_list[7]),
+    #          float(line_list[8]), float(line_list[9]),  line_list[10]]
     def get_params(line_list):
-        long_dist = abs(float(line_list[6]) - float(line_list[8])) # double check
+        long_dist = abs(float(line_list[6]) - float(line_list[8]))
         lat_dist = abs(float(line_list[7]) - float(line_list[9]))
         y = int(line_list[-1])
         row_id = int(line_list[0])
@@ -80,38 +68,40 @@ def parse_row_for_cv(line):
     # trip_duration
     try:
         long_dist, lat_dist, y, row_id = get_params(param_list)
-
+	
+    # for some reason some of the files have utf-8	
     except ValueError:
         try:
-            # for some reason some of the files have utf-8
             encoded_list = [str(i.encode('utf-8')) for i in param_list]
             long_dist, lat_dist, y, row_id = get_params(param_list)
+		# that wasnt the issue
         except e:
             print("\n------------\n!!!!!!!!!********########\n---------------")
             print(line_list)
             print(e)
 
-
-    #not currently using but may need some of the value
-    #x_values = [line_list[0], line_list[1], line_list[2],  line_list[3],  line_list[4],
-    #          int(line_list[5]),  float(line_list[6]),  float(line_list[7]),
-    #          float(line_list[8]), float(line_list[9]),  line_list[10]]
     return (row_id, [y, lat_dist, long_dist])
 
 def get_lr_evals(predictions):
     metrics = RegressionMetrics(predictions)
-    # mse, rmse, var
+    # MSE, RMSE, var, MAE
     return metrics.meanSquaredError, metrics.rootMeanSquaredError, \
             metrics.explainedVariance, metrics.meanAbsoluteError
 
 def cv_split(rdd, k_folds, test_k):
     # use mod and row number to filter train and validation sets
+	# if the row id mod k_folds equals the current validation fold add to validation fold
+	# this has the issue that the same rows get grouped together
+	# Helps that the data is randomly partitioned into test and train sets 
+	# Can fix by randomizing the rows then adding row id in spark 
     train = rdd.filter(lambda x: x[0] % k_folds != test_k)
     test = rdd.filter(lambda x: x[0] % k_folds == test_k)
     return train, test
 
 def convert_to_LabeledPoint(train_rdd, test_rdd):
-    # remove row id, no longer needed
+	# LabeledPoints are needed for mllib linear regression model
+	# rows are (row_id, [y, parameter_value1, parameter_value2...])
+	# remove row id, no longer needed hence grabbing index 1
     train = train_rdd.map(lambda x: LabeledPoint(x[1][0], (x[1][1:])))
     test = test_rdd.map(lambda x: LabeledPoint(x[1][0], (x[1][1:])))
     return train, test
@@ -170,7 +160,8 @@ def main():
     iterations = 100
     cv_step = [x / float(1000) for x in range(80, 120, 10)]
 
-    #SGD params, how much of the data is looked at each step
+    # SGD params, how much of the data is looked at each step
+	# range cant be done with floats so do range of ints then divide with list compression
     if SGD_run:
         #cv_batch_fraction = [x / float(100) for x in range(10, 21, 5)]
         cv_batch_fraction = [0.1]
@@ -188,8 +179,10 @@ def main():
     # CV
     k_folds = 10
 
-    # metric lists
+    # param lists
     steps, batch_fractions, reg_types, reg_params = [], [], [], []
+	
+	# metric lists
     MSE_results, RMSE_results, exp_vars, MAE_results = [], [], [], []
     MSE_avgs, RMSE_avgs, exp_var_avgs, MAE_avgs= [], [], [], []
     timings = []
@@ -203,6 +196,7 @@ def main():
 
     # run cross validation on linear regression model
     # SGD step (alpha), batch percent
+#--------------------------------Start Grid Search-------------------------------------#
     for step in cv_step:
         for batch_pct in cv_batch_fraction:
             for reg in regType:
@@ -210,8 +204,7 @@ def main():
                     # Build model
                     cv_start = time.time()
                     for k in range(k_folds):
-                        #----Start of CV----#
-
+                        #-------------------Start of CV--------------------------#
                         # create CV sets
                         train_rdd, validate_rdd = cv_split(train_set, k_folds, k)
                         train_rdd, validate_rdd = convert_to_LabeledPoint(train_rdd,
@@ -220,14 +213,14 @@ def main():
                         MSE, RMSE, exp_var, MAE = evaluate_lm(train_rdd, validate_rdd, 
                                                          step, batch_pct, reg,
                                                          reg_param, iterations)
-
+						
+						# store results
                         MSE_results.append(MSE)
                         RMSE_results.append(RMSE)
                         exp_vars.append(exp_var)
                         MAE_results.append(MAE)
-
-                        #----End of CV----#
-
+                        #---------------------End of CV--------------------------#
+ 
                     # update eval lists
                     MSE_avgs.append(np.mean(MSE_results))
                     RMSE_avgs.append(np.mean(RMSE_results))
@@ -245,11 +238,13 @@ def main():
 
                     # update timings
                     timings.append(time.time() - cv_start) 
+#--------------------------------End Grid Search-------------------------------------#
 
     # Finished Grid Search Cross Validation runs
     # save to disk
     fn = os.path.join("..","results","training_results.csv")
-    # izip longest to repeat file_path_name
+	
+    # izip_longest to repeat file_path_name for each of the values
     train_results_to_disk(fn, izip_longest([input_fn], RMSE_avgs, 
                             MSE_avgs, steps, batch_fractions,
                             reg_types, reg_params, timings, MAE_avgs,
@@ -258,11 +253,14 @@ def main():
     # delete result lists to save RAM
     del timings, MSE_avgs, MSE_results, RMSE_results, exp_vars, MAE_avgs
 
-    # next find best params, create lazy zip to reduce memory
+    # next find best params
     min_train_RMSE = min(RMSE_avgs)
 
+	# Create lazy zip to reduce memory
     # results == [(RMSEi, stepi, batch_fraci, reg_typei, reg_paramsi), ... ]
     zipped_results = izip(RMSE_avgs, steps, batch_fractions, reg_types, reg_params)
+	
+	# iterate through results and find the params with the min loss
     step, batch_pct, reg, reg_param = get_best_params(min_train_RMSE, zipped_results)
 
     # delete param lists to save RAM
@@ -272,8 +270,12 @@ def main():
     # convert RDDs to LabeledPoint RDDs to use with mllib, get lm eval metrics
     test_start = time.time()
     train_rdd, test_rdd = convert_to_LabeledPoint(train_set, test_set)
+	
+	# not sure if mllib caches rdd in the background or not
     train_rdd.cache()
     test_rdd.cache()
+	
+	# return test results
     MSE, RMSE, exp_var, MAE = evaluate_lm(train_rdd, test_rdd, step, batch_pct,
                                      reg, reg_param, iterations)
 
