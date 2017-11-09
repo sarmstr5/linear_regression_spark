@@ -165,7 +165,7 @@ def main():
 
     # Optimization params
     SGD_run = True
-    reg_run = False
+    reg_run = True
     iterations = 100
     cv_step = [x / float(1000) for x in range(80, 120, 10)]
 
@@ -177,7 +177,7 @@ def main():
 
     # Regularization params
     if reg_run:
-        cv_reg_param = [x / float(1000) for x in range(1, 50, 5)]
+        cv_reg_param = [x / float(1000) for x in range(1, 500, 100)]
         regType= ["l1", "l2"]
     else:
         cv_reg_param = [0]
