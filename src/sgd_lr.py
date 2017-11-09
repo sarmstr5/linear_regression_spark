@@ -54,11 +54,11 @@ def calculate_haversine_dist(lat1, lon1, lat2, lon2):
     r_km = 6371; # Radius of the earth in km
     lat_dist = convert_to_rads(lat2-lat1)
     lon_dist = convert_to_rads(lon2-lon1)
-    a = math.sin(lat_dist / 2.0) * math.sin(lat_dist / 2.0) + \
+    hav_a = math.sin(lat_dist / 2.0) * math.sin(lat_dist / 2.0) + \
         math.cos(convert_to_rads(lat1)) * math.cos(convert_to_rads(lat2)) *\
         math.sin(lon_dist / 2.0) * math.sin(lon_dist / 2.0)
-    c = 2 * math.atanh(math.sqrt(a), math.sqrt(1-a))
-    return r_km * c # distance in km
+    hav_c = 2 * math.atanh(math.sqrt(a), math.sqrt(1-a))
+    return r_km * hav_c # distance in km
 
 
 def convert_to_rads(deg):
@@ -101,7 +101,8 @@ def parse_row_for_cv(line):
 def get_lr_evals(predictions):
     metrics = RegressionMetrics(predictions)
     # mse, rmse, var
-    return metrics.meanSquaredError, metrics.rootMeanSquaredError, metrics.explainedVariance
+    return metrics.meanSquaredError, metrics.rootMeanSquaredError, \
+            metrics.explainedVariance, metrics.meanAbsoluteError
 
 def cv_split(rdd, k_folds, test_k):
     # use mod and row number to filter train and validation sets
@@ -164,14 +165,15 @@ def main():
     data = data.filter(lambda x: x != header)
 
     # Optimization params
-    SGD_run = False
-    reg_run = False
+    SGD_run = True
+    reg_run = True
     iterations = 100
     cv_step = [x / float(1000) for x in range(80, 120, 10)]
 
     #SGD params, how much of the data is looked at each step
     if SGD_run:
-        cv_batch_fraction = [x / float(100) for x in range(10, 21, 5)]
+        #cv_batch_fraction = [x / float(100) for x in range(10, 21, 5)]
+        cv_batch_fraction = [0.1]
     else:
         cv_batch_fraction = [1]
 
@@ -188,8 +190,8 @@ def main():
 
     # metric lists
     steps, batch_fractions, reg_types, reg_params = [], [], [], []
-    MSE_results, RMSE_results, exp_vars = [], [], [] 
-    MSE_avgs, RMSE_avgs, exp_var_avgs = [], [], []
+    MSE_results, RMSE_results, exp_vars, MAE_results = [], [], [], []
+    MSE_avgs, RMSE_avgs, exp_var_avgs, MAE_avgs= [], [], [], []
     timings = []
 
     # returns ((row_id, [y, lat_dist, long_dist]), ...)
@@ -215,13 +217,14 @@ def main():
                         train_rdd, validate_rdd = convert_to_LabeledPoint(train_rdd,
                                                                         validate_rdd)
                         # find evaluation metrics
-                        MSE, RMSE, exp_var = evaluate_lm(train_rdd, validate_rdd, 
+                        MSE, RMSE, exp_var, MAE = evaluate_lm(train_rdd, validate_rdd, 
                                                          step, batch_pct, reg,
                                                          reg_param, iterations)
 
                         MSE_results.append(MSE)
                         RMSE_results.append(RMSE)
                         exp_vars.append(exp_var)
+                        MAE_results.append(MAE)
 
                         #----End of CV----#
 
@@ -229,6 +232,7 @@ def main():
                     MSE_avgs.append(np.mean(MSE_results))
                     RMSE_avgs.append(np.mean(RMSE_results))
                     exp_var_avgs.append(np.mean(exp_vars))
+                    MAE_avgs.append(np.mean(MAE_results))
 
                     # reset cv lists
                     MSE_results, RMSE_results, exp_vars = [], [], [] 
@@ -248,11 +252,11 @@ def main():
     # izip longest to repeat file_path_name
     train_results_to_disk(fn, izip_longest([input_fn], RMSE_avgs, 
                             MSE_avgs, steps, batch_fractions,
-                            reg_types, reg_params, timings,
+                            reg_types, reg_params, timings, MAE_avgs,
                             fillvalue=input_fn))
 
     # delete result lists to save RAM
-    del timings, MSE_avgs, MSE_results, RMSE_results, exp_vars 
+    del timings, MSE_avgs, MSE_results, RMSE_results, exp_vars, MAE_avgs
 
     # next find best params, create lazy zip to reduce memory
     min_train_RMSE = min(RMSE_avgs)
@@ -270,7 +274,7 @@ def main():
     train_rdd, test_rdd = convert_to_LabeledPoint(train_set, test_set)
     train_rdd.cache()
     test_rdd.cache()
-    MSE, RMSE, exp_var = evaluate_lm(train_rdd, test_rdd, step, batch_pct,
+    MSE, RMSE, exp_var, MAE = evaluate_lm(train_rdd, test_rdd, step, batch_pct,
                                      reg, reg_param, iterations)
 
     # save test results to local disk
@@ -279,7 +283,7 @@ def main():
                               min_train_RMSE, step, batch_pct, reg,
                               reg_param, SGD_run, reg_run,
                               time.time() - test_start,
-                              time.time() - start_time))
+                              time.time() - start_time, MAE))
 
 if __name__ == "__main__":
     main()
